@@ -22,6 +22,8 @@ data class Account(
     val hidden: Boolean = false,
     val lastSync: Long? = null,
     val lastError: String? = null,
+    /** Kontobezeichnung von der Bank (null = noch nicht ermittelt) */
+    val ebLabel: String? = null,
 )
 
 @Serializable

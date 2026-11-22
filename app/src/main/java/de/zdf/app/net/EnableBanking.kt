@@ -20,9 +20,14 @@ data class Aspsp(val name: String, val country: String, val maxConsentSeconds: L
 data class EbAccount(
     val uid: String,
     val iban: String?,
-    val name: String?,
+    /** Bei vielen Banken (z. B. N26) der Kontoinhaber, nicht die Kontobezeichnung */
+    val holder: String?,
+    val product: String?,
     val currency: String?,
-)
+) {
+    /** Kontobezeichnung: Produktname/Details statt Inhabername */
+    val label: String get() = product?.takeIf { it.isNotBlank() } ?: "Konto"
+}
 
 data class EbSession(val sessionId: String, val accounts: List<EbAccount>, val validUntil: String?)
 
@@ -92,15 +97,27 @@ class EnableBanking(private val appId: String, privateKeyPem: String) {
         val body = buildJsonObject { put("code", code) }
         val r = Http.request("POST", "$base/sessions", auth(), body.toString())
         val accounts = r.arr("accounts").map { a ->
-            EbAccount(
-                uid = a.str("uid") ?: error("Konto ohne uid"),
-                iban = a.path("account_id", "iban"),
-                name = a.str("name") ?: a.str("product") ?: a.str("details"),
-                currency = a.str("currency"),
-            )
+            parseAccount(a)
         }
         return EbSession(r.str("session_id") ?: error("Keine session_id"), accounts, r.path("access", "valid_until"))
     }
+
+    private fun parseAccount(a: kotlinx.serialization.json.JsonElement) = EbAccount(
+        uid = a.str("uid") ?: error("Konto ohne uid"),
+        iban = a.path("account_id", "iban"),
+        holder = a.str("name"),
+        product = a.str("product")?.takeIf { it.isNotBlank() } ?: a.str("details")?.takeIf { it.isNotBlank() }
+            ?: a.str("cash_account_type")?.let { if (it == "CACC") "Girokonto" else if (it == "SVGS") "Sparkonto" else if (it == "CARD") "Karte" else null },
+        currency = a.str("currency"),
+    )
+
+    /** Kontodetails nachladen (für bessere Namen bei bereits verbundenen Konten). */
+    suspend fun accountDetails(uid: String): EbAccount = parseAccount(
+        Http.request("GET", "$base/accounts/$uid/details", auth()).let { r ->
+            if (r is kotlinx.serialization.json.JsonObject && r["uid"] == null)
+                kotlinx.serialization.json.JsonObject(r + ("uid" to kotlinx.serialization.json.JsonPrimitive(uid))) else r
+        }
+    )
 
     suspend fun deleteSession(sessionId: String) {
         runCatching { Http.request("DELETE", "$base/sessions/$sessionId", auth()) }

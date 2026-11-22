@@ -103,6 +103,31 @@ class Repository(context: Context, private val store: Store = Store(context)) {
 
     // ---------------------------------------------------------------- Enable Banking (Bankkonten)
 
+    private fun ebName(aspsp: String, label: String, iban: String?): String =
+        "$aspsp $label" + (iban?.replace(" ", "")?.takeLast(4)?.let { " ···$it" } ?: "")
+
+    /** Räumt Konten aus älteren, ersetzten Verbindungen derselben Bank auf (Altlast aus Version ≤ 1.1.6). */
+    private fun cleanupReplacedConnections() {
+        val d = _data.value
+        val newestPerBank = d.connections.groupBy { it.aspspName }.mapValues { it.value.last().id }
+        val stale = d.connections.filter { newestPerBank[it.aspspName] != it.id }
+        if (stale.isEmpty()) return
+        val staleIds = stale.map { it.id }.toSet()
+        val removed = d.accounts.filter { it.connectionId in staleIds }.map { it.id }.toSet()
+        update {
+            it.copy(
+                accounts = it.accounts.filterNot { a -> a.id in removed },
+                txns = it.txns.filterNot { t -> t.accountId in removed },
+                connections = it.connections.filterNot { c -> c.id in staleIds },
+            )
+        }
+        scope.launch { stale.forEach { c -> runCatching { eb().deleteSession(c.sessionId) } } }
+    }
+
+    init {
+        runCatching { cleanupReplacedConnections() }
+    }
+
     fun saveEbCredentials(appId: String, pem: String, redirect: String) = update {
         it.copy(settings = it.settings.copy(ebAppId = appId.trim(), ebPrivateKeyPem = pem.trim(), ebRedirectUrl = redirect.trim()))
     }
@@ -145,20 +170,34 @@ class Repository(context: Context, private val store: Store = Store(context)) {
                 _sync.value = SyncState(true, "Bankverbindung wird eingerichtet …")
                 val session = eb().createSession(code)
                 val connId = UUID.randomUUID().toString()
+                val aspspName = s.pendingAspsp ?: "Bank"
+                var replacedSessions = emptyList<String>()
                 update { d ->
-                    val conn = BankConnection(connId, session.sessionId, s.pendingAspsp ?: "Bank", s.pendingCountry ?: "DE", session.validUntil)
+                    val conn = BankConnection(connId, session.sessionId, aspspName, s.pendingCountry ?: "DE", session.validUntil)
+                    // Bisherige Konten derselben Bank: wiederverwenden (Umsätze & Kategorien bleiben), Rest entfernen
+                    val old = d.accounts.filter { it.source == Source.ENABLE_BANKING && it.institution == aspspName }.toMutableList()
                     val newAccounts = session.accounts.map { a ->
-                        val existing = d.accounts.firstOrNull { it.source == Source.ENABLE_BANKING && it.iban != null && it.iban == a.iban }
-                        (existing ?: Account(id = "eb-" + UUID.randomUUID().toString().take(8), name = a.name ?: (s.pendingAspsp ?: "Konto"), source = Source.ENABLE_BANKING))
-                            .copy(providerRef = a.uid, connectionId = connId, iban = a.iban, currency = a.currency ?: "EUR", institution = s.pendingAspsp, lastError = null)
+                        val existing = old.firstOrNull { a.iban != null && it.iban == a.iban }
+                            ?: old.firstOrNull { a.iban == null && it.iban == null && (it.ebLabel == null || it.ebLabel == a.label) }
+                        if (existing != null) old.remove(existing)
+                        val base = existing ?: Account(id = "eb-" + UUID.randomUUID().toString().take(8), name = "", source = Source.ENABLE_BANKING)
+                        base.copy(
+                            name = if (existing == null || existing.ebLabel == null) ebName(aspspName, a.label, a.iban) else existing.name,
+                            ebLabel = a.label, providerRef = a.uid, connectionId = connId, iban = a.iban,
+                            currency = a.currency ?: "EUR", institution = aspspName, lastError = null,
+                        )
                     }
-                    val keep = d.accounts.filterNot { o -> newAccounts.any { it.id == o.id } }
+                    val removedIds = old.map { it.id }.toSet()
+                    val oldConns = d.connections.filter { it.aspspName == aspspName }
+                    replacedSessions = oldConns.map { it.sessionId }
                     d.copy(
-                        accounts = keep + newAccounts,
-                        connections = d.connections + conn,
+                        accounts = d.accounts.filterNot { o -> o.id in removedIds || newAccounts.any { it.id == o.id } } + newAccounts,
+                        txns = d.txns.filterNot { it.accountId in removedIds },
+                        connections = d.connections - oldConns.toSet() + conn,
                         settings = d.settings.copy(pendingState = null, pendingAspsp = null, pendingCountry = null),
                     )
                 }
+                replacedSessions.forEach { sid -> runCatching { eb().deleteSession(sid) } }
                 _sync.value = SyncState(false, "${session.accounts.size} Konto/Konten verbunden")
                 syncAll()
             } catch (e: Exception) {
@@ -180,10 +219,13 @@ class Repository(context: Context, private val store: Store = Store(context)) {
             client.transactions(uid, LocalDate.now().minusDays(89))
         }
         val bal = runCatching { client.balance(uid) }.getOrNull()
+        val details = if (acc.ebLabel == null) runCatching { client.accountDetails(uid) }.getOrNull() else null
         update { d ->
             val (nd, _) = merge(d, acc.id, txns.map { Incoming(it.ref, it.date, it.amountCents, it.currency, it.counterparty, it.purpose, it.pending) }, dropPending = true)
             nd.copy(accounts = nd.accounts.map {
                 if (it.id != acc.id) it else it.copy(
+                    name = if (it.ebLabel == null) ebName(it.institution ?: "Bank", details?.label ?: "Konto", it.iban) else it.name,
+                    ebLabel = it.ebLabel ?: details?.label ?: "Konto",
                     balanceCents = bal?.first ?: it.balanceCents, currency = bal?.second ?: it.currency,
                     balanceDate = LocalDate.now().toString(), lastSync = System.currentTimeMillis(), lastError = null,
                 )
