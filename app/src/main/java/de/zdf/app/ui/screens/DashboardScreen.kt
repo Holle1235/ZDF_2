@@ -135,10 +135,15 @@ fun DashboardScreen(
                         Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(a.name, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                val limited = (a.rateLimitedUntil ?: 0) > System.currentTimeMillis()
                                 Text(
-                                    if (a.lastError != null) "⚠ Fehler beim Abruf" else sourceLabel(a),
+                                    when {
+                                        limited -> "⏸ Bank-Tageslimit – letzter Stand"
+                                        a.lastError != null -> "⚠ Fehler beim Abruf"
+                                        else -> sourceLabel(a)
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = if (a.lastError != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = if (a.lastError != null && !limited) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                             Text(money(a.balanceCents, a.currency), fontWeight = FontWeight.SemiBold)

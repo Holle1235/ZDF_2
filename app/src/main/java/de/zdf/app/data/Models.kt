@@ -24,6 +24,8 @@ data class Account(
     val lastError: String? = null,
     /** Kontobezeichnung von der Bank (null = noch nicht ermittelt) */
     val ebLabel: String? = null,
+    /** Bank-Tageslimit erreicht: bis zu diesem Zeitpunkt (ms) nicht abfragen */
+    val rateLimitedUntil: Long? = null,
 )
 
 @Serializable

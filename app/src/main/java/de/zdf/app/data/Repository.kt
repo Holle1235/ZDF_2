@@ -52,11 +52,11 @@ class Repository(context: Context, private val store: Store = Store(context)) {
         )
     }
 
-    private fun recategorized(d: AppData): AppData = d.copy(
+    private fun recategorized(d: AppData): AppData = TransferMatcher.apply(d.copy(
         txns = d.txns.map { t ->
             if (t.categoryManual) t else t.copy(category = categorize(d, t.accountId, t.counterparty, t.purpose, t.amountCents, t.code))
         }
-    )
+    ))
 
     fun setCategory(txnId: String, category: String, createRule: Boolean) = update { d ->
         val t = d.txns.firstOrNull { it.id == txnId } ?: return@update d
@@ -98,7 +98,7 @@ class Repository(context: Context, private val store: Store = Store(context)) {
             )
         }
         val others = d.txns.filter { it.accountId != accountId }
-        return d.copy(txns = (others + existing.values).sortedByDescending { it.date }) to added
+        return TransferMatcher.apply(d.copy(txns = (others + existing.values).sortedByDescending { it.date })) to added
     }
 
     // ---------------------------------------------------------------- Enable Banking (Bankkonten)
@@ -126,6 +126,7 @@ class Repository(context: Context, private val store: Store = Store(context)) {
 
     init {
         runCatching { cleanupReplacedConnections() }
+        runCatching { update { TransferMatcher.apply(it) } }
     }
 
     fun saveEbCredentials(appId: String, pem: String, redirect: String) = update {
@@ -227,7 +228,7 @@ class Repository(context: Context, private val store: Store = Store(context)) {
                     name = if (it.ebLabel == null) ebName(it.institution ?: "Bank", details?.label ?: "Konto", it.iban) else it.name,
                     ebLabel = it.ebLabel ?: details?.label ?: "Konto",
                     balanceCents = bal?.first ?: it.balanceCents, currency = bal?.second ?: it.currency,
-                    balanceDate = LocalDate.now().toString(), lastSync = System.currentTimeMillis(), lastError = null,
+                    balanceDate = LocalDate.now().toString(), lastSync = System.currentTimeMillis(), lastError = null, rateLimitedUntil = null,
                 )
             })
         }
@@ -265,31 +266,60 @@ class Repository(context: Context, private val store: Store = Store(context)) {
 
     // ---------------------------------------------------------------- Sync
 
-    fun syncAll() {
+    /**
+     * Banken erlauben nach PSD2 nur wenige Abrufe pro Tag (N26: ca. 4 je Konto).
+     * Deshalb: automatische Abrufe höchstens alle [AUTO_INTERVAL_MS], manuelle frühestens nach
+     * [MANUAL_INTERVAL_MS]; nach einem Limit-Fehler pausiert das Konto bis zum nächsten Tag.
+     */
+    fun syncAll(manual: Boolean = true) {
         scope.launch {
             if (!syncMutex.tryLock()) return@launch
             try {
+                val now = System.currentTimeMillis()
                 val accounts = _data.value.accounts.filter { it.source == Source.ENABLE_BANKING || it.source == Source.PAYPAL }
                 if (accounts.isEmpty()) {
-                    _sync.value = SyncState(false, "Keine verbundenen Konten – füge eins unter Konten hinzu")
+                    if (manual) _sync.value = SyncState(false, "Keine verbundenen Konten – füge eins unter Konten hinzu")
+                    return@launch
+                }
+                val minAge = if (manual) MANUAL_INTERVAL_MS else AUTO_INTERVAL_MS
+                val due = accounts.filter { a ->
+                    (a.rateLimitedUntil ?: 0) < now && (a.lastError != null || now - (a.lastSync ?: 0) >= minAge)
+                }
+                if (due.isEmpty()) {
+                    if (manual) {
+                        val limited = accounts.any { (it.rateLimitedUntil ?: 0) >= now }
+                        _sync.value = SyncState(false, if (limited) "Tageslimit der Bank erreicht – neue Umsätze ab morgen wieder" else "Gerade erst aktualisiert ✓")
+                    }
                     return@launch
                 }
                 var errors = 0
-                for (acc in accounts) {
+                var limited = 0
+                for (acc in due) {
                     _sync.value = SyncState(true, "Aktualisiere ${acc.name} …")
                     try {
                         if (acc.source == Source.PAYPAL) syncPaypal(acc) else syncEbAccount(acc)
                     } catch (e: Exception) {
-                        errors++
-                        update { d -> d.copy(accounts = d.accounts.map { if (it.id == acc.id) it.copy(lastError = e.message?.take(300)) else it }) }
+                        val isLimit = (e as? de.zdf.app.net.ApiException)?.status == 429 || e.message?.contains("RATE_LIMIT") == true
+                        if (isLimit) limited++ else errors++
+                        val until = if (isLimit) java.time.LocalDate.now().plusDays(1).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli() else null
+                        val msg = if (isLimit) "Tageslimit der Bank erreicht (PSD2) – nächster Abruf ab morgen. Angezeigt wird der letzte Stand." else e.message?.take(300)
+                        update { d -> d.copy(accounts = d.accounts.map { if (it.id == acc.id) it.copy(lastError = msg, rateLimitedUntil = until) else it }) }
                     }
                 }
-                _sync.value = if (errors == 0) SyncState(false, "Alles aktuell ✓")
-                else SyncState(false, "$errors Konto/Konten mit Fehler – Details unter Konten", true)
+                _sync.value = when {
+                    errors > 0 -> SyncState(false, "$errors Konto/Konten mit Fehler – Details unter Konten", true)
+                    limited > 0 -> SyncState(false, "Tageslimit der Bank erreicht – neue Umsätze ab morgen wieder")
+                    else -> SyncState(false, "Alles aktuell ✓")
+                }
             } finally {
                 syncMutex.unlock()
             }
         }
+    }
+
+    companion object {
+        const val AUTO_INTERVAL_MS = 6 * 3600_000L
+        const val MANUAL_INTERVAL_MS = 15 * 60_000L
     }
 
     // ---------------------------------------------------------------- CSV & manuelle Konten

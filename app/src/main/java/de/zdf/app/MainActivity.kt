@@ -10,7 +10,6 @@ import androidx.biometric.BiometricPrompt
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
-import de.zdf.app.data.Source
 import de.zdf.app.ui.AppRoot
 import de.zdf.app.ui.theme.ZdfTheme
 import de.zdf.app.update.UpdatePrefs
@@ -32,10 +31,7 @@ class MainActivity : FragmentActivity() {
                 AppRoot(repo = repo, unlocked = unlocked.value, onUnlock = ::authenticate)
             }
         }
-        val d = repo.data.value
-        val stale = d.accounts.filter { it.source == Source.ENABLE_BANKING || it.source == Source.PAYPAL }
-            .any { (it.lastSync ?: 0) < System.currentTimeMillis() - 6 * 3600_000 }
-        if (stale) repo.syncAll()
+        repo.syncAll(manual = false)
 
         // Nach App-Updates suchen (höchstens alle 30 Minuten)
         if (System.currentTimeMillis() - Updater.lastCheck(this) > 30 * 60_000) {

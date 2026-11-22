@@ -117,3 +117,23 @@ class UpdateVersionTest {
         assertEquals(null, de.zdf.app.update.Updater.versionCodeFromTag("latest"))
     }
 }
+
+class TransferMatcherTest {
+    @Test fun spacesTransferIsNotIncomeOrExpense() {
+        val d = de.zdf.app.data.AppData(
+            accounts = listOf(
+                de.zdf.app.data.Account("main", "Hauptkonto", de.zdf.app.data.Source.ENABLE_BANKING),
+                de.zdf.app.data.Account("rent", "Miete", de.zdf.app.data.Source.ENABLE_BANKING),
+            ),
+            txns = listOf(
+                Txn("o", "main", "2026-11-01", -80000, counterparty = "BENNET FREYTAG", category = Categories.OTHER),
+                Txn("i", "rent", "2026-11-02", 80000, counterparty = "BENNET FREYTAG", category = Categories.INCOME),
+                Txn("x", "main", "2026-11-03", -80000, counterparty = "Vermieter", category = "housing"),
+            ),
+        )
+        val r = de.zdf.app.data.TransferMatcher.apply(d).txns.associateBy { it.id }
+        assertEquals(Categories.TRANSFER, r.getValue("o").category)
+        assertEquals(Categories.TRANSFER, r.getValue("i").category)
+        assertEquals("housing", r.getValue("x").category)
+    }
+}
