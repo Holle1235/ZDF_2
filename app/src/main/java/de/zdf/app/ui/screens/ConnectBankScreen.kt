@@ -55,12 +55,15 @@ fun ConnectBankScreen(data: AppData, repo: Repository, padding: PaddingValues) {
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var callback by remember { mutableStateOf("") }
+    var opening by remember { mutableStateOf<String?>(null) }
+    var authError by remember { mutableStateOf<String?>(null) }
 
     val pickPem = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) pem = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }.orEmpty()
     }
 
-    fun loadBanks() {
+    fun loadBanks(all: Boolean = false) {
+        if (all) country = ""
         loading = true; error = null
         scope.launch {
             try { banks = repo.listBanks(country.trim().uppercase()) } catch (e: Exception) { error = e.message }
@@ -101,31 +104,46 @@ fun ConnectBankScreen(data: AppData, repo: Repository, padding: PaddingValues) {
             item {
                 SectionCard(title = "2 · Bank auswählen") {
                     Row {
-                        OutlinedTextField(country, { country = it.take(2) }, label = { Text("Land") }, singleLine = true, modifier = Modifier.weight(0.3f))
+                        OutlinedTextField(country, { country = it.take(2) }, label = { Text("Land") }, placeholder = { Text("alle") }, singleLine = true, modifier = Modifier.weight(0.3f))
                         Spacer(Modifier.padding(4.dp))
                         OutlinedTextField(filter, { filter = it }, label = { Text("Bank suchen") }, singleLine = true, modifier = Modifier.weight(0.7f))
                     }
                     Spacer(Modifier.height(8.dp))
-                    if (banks.isEmpty() && !loading) Button(::loadBanks) { Text("Banken laden") }
+                    if (!loading) Row {
+                        if (banks.isEmpty()) Button({ loadBanks() }) { Text("Banken laden") }
+                        if (country.isNotBlank()) TextButton({ loadBanks(all = true) }) { Text("In allen Ländern suchen") }
+                    }
                     if (loading) CircularProgressIndicator()
                     error?.let { Text("Fehler: $it", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 }
             }
-            val shown = banks.filter { filter.isBlank() || it.name.contains(filter.trim(), ignoreCase = true) }.take(80)
-            items(shown, key = { it.name + it.country }) { b ->
+            fun norm(x: String) = x.lowercase().filter { it.isLetterOrDigit() }
+            val q = norm(filter)
+            val shown = banks.distinctBy { it.name + "|" + it.country }.filter { q.isEmpty() || norm(it.name).contains(q) }
+            if (banks.isNotEmpty()) item {
+                Text(
+                    if (shown.isEmpty()) if (country.isBlank()) "Keine Bank mit „$filter“ gefunden – auch in keinem anderen Land." else "Keine Bank mit „$filter“ in $country – tippe auf „In allen Ländern suchen“." else "${shown.size} Banken – tippe oben den Namen ein, um zu filtern.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            items(shown, key = { it.name + "|" + it.country }) { b ->
                 Column(
-                    Modifier.fillMaxWidth().clickable {
+                    Modifier.fillMaxWidth().clickable(enabled = opening == null) {
+                        opening = b.name
                         scope.launch {
                             try {
                                 val url = repo.startBankAuth(b)
                                 ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                             } catch (e: Exception) {
-                                error = e.message
+                                authError = "${b.name}: ${e.message}"
                             }
+                            opening = null
                         }
                     }.padding(horizontal = 8.dp, vertical = 10.dp),
                 ) {
-                    Text(b.name, fontWeight = FontWeight.Medium)
+                    Text(if (opening == b.name) "${b.name} – Login wird geöffnet …" else b.name, fontWeight = FontWeight.Medium)
+                    val types = if (b.psuTypes.isEmpty()) "" else " · " + b.psuTypes.joinToString { if (it == "personal") "Privat" else if (it == "business") "Geschäft" else it }
+                    Text(b.country + types, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     HorizontalDivider(Modifier.padding(top = 10.dp))
                 }
             }
@@ -140,5 +158,18 @@ fun ConnectBankScreen(data: AppData, repo: Repository, padding: PaddingValues) {
                 }
             }
         }
+    }
+    authError?.let { msg ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { authError = null },
+            confirmButton = { TextButton({ authError = null }) { Text("OK") } },
+            title = { Text("Bank-Login konnte nicht gestartet werden") },
+            text = {
+                Text(
+                    msg + "\n\nHäufige Ursachen: Die Redirect-URL in ZDF stimmt nicht exakt mit der in Enable Banking eingetragenen überein, " +
+                        "oder die Application ist noch nicht über „Link accounts“ aktiviert.",
+                )
+            },
+        )
     }
 }

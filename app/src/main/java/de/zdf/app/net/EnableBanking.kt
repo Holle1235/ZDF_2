@@ -59,8 +59,10 @@ class EnableBanking(private val appId: String, privateKeyPem: String) {
 
     private fun auth() = mapOf("Authorization" to "Bearer ${jwt()}")
 
+    /** @param country ISO-Code oder leer für alle Länder */
     suspend fun aspsps(country: String): List<Aspsp> {
-        val r = Http.request("GET", "$base/aspsps?country=$country&psu_type=personal", auth())
+        val url = if (country.isBlank()) "$base/aspsps" else "$base/aspsps?country=$country"
+        val r = Http.request("GET", url, auth())
         return r.arr("aspsps").map { a ->
             Aspsp(
                 name = a.str("name") ?: "?",
