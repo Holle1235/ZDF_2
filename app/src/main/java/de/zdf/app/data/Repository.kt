@@ -123,9 +123,10 @@ class Repository(context: Context, private val store: Store = Store(context)) {
     }
 
     /** Verarbeitet die Rücksprung-URL (Deep Link oder manuell eingefügt). */
+    private val usedCodes = java.util.Collections.synchronizedSet(HashSet<String>())
+
     fun completeBankAuth(callbackUrl: String) {
         scope.launch {
-            _sync.value = SyncState(true, "Bankverbindung wird eingerichtet …")
             try {
                 val uri = java.net.URI(callbackUrl.trim().replace(" ", "%20"))
                 val params = (uri.rawQuery ?: "").split('&').filter { '=' in it }.associate {
@@ -135,7 +136,13 @@ class Repository(context: Context, private val store: Store = Store(context)) {
                 params["error"]?.let { error("Bank meldet: $it ${params["error_description"].orEmpty()}") }
                 val code = params["code"] ?: error("Kein 'code' in der URL gefunden")
                 val s = _data.value.settings
-                if (params["state"] != null && s.pendingState != null && params["state"] != s.pendingState) error("Ungültiger state – bitte Verbindung neu starten")
+                // Derselbe Code kann doppelt ankommen (App Link + manuell eingefügt) – nur einmal einlösen.
+                if (!usedCodes.add(code) || (params["state"] != null && s.pendingState == null)) {
+                    _sync.value = SyncState(false, "Diese Bankfreigabe wurde bereits übernommen ✓")
+                    return@launch
+                }
+                if (params["state"] != null && params["state"] != s.pendingState) error("Ungültiger state – bitte Verbindung neu starten")
+                _sync.value = SyncState(true, "Bankverbindung wird eingerichtet …")
                 val session = eb().createSession(code)
                 val connId = UUID.randomUUID().toString()
                 update { d ->
@@ -155,7 +162,9 @@ class Repository(context: Context, private val store: Store = Store(context)) {
                 _sync.value = SyncState(false, "${session.accounts.size} Konto/Konten verbunden")
                 syncAll()
             } catch (e: Exception) {
-                _sync.value = SyncState(false, "Verbindung fehlgeschlagen: ${e.message}", true)
+                val already = e.message?.contains("ALREADY_AUTHORIZED") == true
+                _sync.value = if (already) SyncState(false, "Diese Bankfreigabe wurde bereits übernommen ✓")
+                else SyncState(false, "Verbindung fehlgeschlagen: ${e.message}", true)
             }
         }
     }
