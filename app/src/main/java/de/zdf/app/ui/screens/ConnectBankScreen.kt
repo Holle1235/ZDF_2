@@ -66,7 +66,7 @@ fun ConnectBankScreen(data: AppData, repo: Repository, padding: PaddingValues) {
         if (all) country = ""
         loading = true; error = null
         scope.launch {
-            try { banks = repo.listBanks(country.trim().uppercase()) } catch (e: Exception) { error = e.message }
+            try { banks = repo.listBanks(country.trim().uppercase()) } catch (e: Exception) { error = explainEbError(e.message) }
             loading = false
         }
     }
@@ -135,7 +135,7 @@ fun ConnectBankScreen(data: AppData, repo: Repository, padding: PaddingValues) {
                                 val url = repo.startBankAuth(b)
                                 ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                             } catch (e: Exception) {
-                                authError = "${b.name}: ${e.message}"
+                                authError = "${b.name}: ${explainEbError(e.message)}"
                             }
                             opening = null
                         }
@@ -171,5 +171,20 @@ fun ConnectBankScreen(data: AppData, repo: Repository, padding: PaddingValues) {
                 )
             },
         )
+    }
+}
+
+/** Übersetzt typische Enable-Banking-Fehler in verständliche Hinweise. */
+fun explainEbError(msg: String?): String {
+    val m = msg.orEmpty()
+    return when {
+        m.contains("not active", true) ->
+            "Die Application ist noch nicht aktiv. Öffne enablebanking.com → Control Panel → Applications → deine App → „Link accounts“ " +
+                "und verknüpfe dort deine eigenen Konten (z. B. N26). Danach erneut versuchen.\n\n($m)"
+        m.contains("redirect", true) ->
+            "Die Redirect-URL in ZDF stimmt nicht exakt mit der bei Enable Banking eingetragenen überein.\n\n($m)"
+        m.contains("HTTP 401") || m.contains("signature", true) || m.contains("jwt", true) ->
+            "Application-ID und Private Key passen nicht zusammen. Prüfe unter „Ändern“, ob die .pem-Datei zur App-ID gehört.\n\n($m)"
+        else -> m
     }
 }
