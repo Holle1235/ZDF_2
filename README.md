@@ -46,7 +46,7 @@ Banken in der EU geben Kontodaten nur an **lizenzierte Kontoinformationsdienste*
 („restricted production mode“). Deine Bank-Zugangsdaten gibst du nur auf der Seite deiner Bank ein; die Umsätze gehen
 direkt von Enable Banking an dein Handy, nicht über einen ZDF-Server.
 
-1. **Callback-Seite aktivieren** (damit die App nach dem Bank-Login automatisch wieder aufgeht):
+1. **Callback-Seite aktivieren** (Adresse: `https://zdf.bennet-freytag.com/callback.html`, eigene Domain über `docs/CNAME`) (damit die App nach dem Bank-Login automatisch wieder aufgeht):
    GitHub → Repository → *Settings* → *Pages* → Source „Deploy from a branch“, Branch mit dem `docs/`-Ordner wählen.
    Danach ist `https://<dein-name>.github.io/zdf_2/callback.html` erreichbar.
    *(Optional – ohne Pages kopierst du nach dem Login einfach die URL aus dem Browser in die App.)*

@@ -65,7 +65,8 @@ class MainActivity : FragmentActivity() {
 
     private fun handleIntent(intent: Intent?) {
         val uri = intent?.data ?: return
-        if (uri.scheme == "zdf" && uri.host == "callback") {
+        val appLink = uri.scheme == "https" && uri.host == "zdf.bennet-freytag.com" && uri.path == "/callback.html"
+        if ((uri.scheme == "zdf" && uri.host == "callback") || appLink) {
             repo.completeBankAuth(uri.toString())
             intent.data = null
         }

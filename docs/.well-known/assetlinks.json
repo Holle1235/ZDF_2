@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "de.zdf.app",
+    "sha256_cert_fingerprints": ["D3:53:10:96:C7:54:AD:A2:92:76:B7:F8:6F:69:DE:E2:C4:A5:B3:FB:B2:9B:54:F8:31:EB:B5:44:2C:F3:CD:C9"]
+  }
+}]

@@ -35,6 +35,13 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="zdf" android:host="callback" />
             </intent-filter>
+            <!-- App Link: https://zdf.bennet-freytag.com/callback.html öffnet ZDF direkt (verifiziert über .well-known/assetlinks.json) -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="zdf.bennet-freytag.com" android:path="/callback.html" />
+            </intent-filter>
         </activity>
         <receiver android:name=".update.InstallReceiver" android:exported="false" />
     </application>

@@ -62,7 +62,7 @@ data class BankConnection(
 data class Settings(
     val ebAppId: String = "",
     val ebPrivateKeyPem: String = "",
-    val ebRedirectUrl: String = "https://holle1235.github.io/zdf_2/callback.html",
+    val ebRedirectUrl: String = "https://zdf.bennet-freytag.com/callback.html",
     val paypalClientId: String = "",
     val paypalSecret: String = "",
     val paypalSandbox: Boolean = false,
