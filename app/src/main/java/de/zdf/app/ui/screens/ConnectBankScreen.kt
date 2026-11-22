@@ -79,6 +79,10 @@ fun ConnectBankScreen(data: AppData, repo: Repository, padding: PaddingValues) {
             SectionCard(title = "1 · Enable-Banking-Zugang") {
                 if (!editCreds) {
                     Text("App-ID: ${s.ebAppId.take(8)}…  ✓ Schlüssel hinterlegt", style = MaterialTheme.typography.bodyMedium)
+                    Text("Redirect-URL (muss exakt so bei Enable Banking stehen):", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                        Text(s.ebRedirectUrl, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+                    }
                     TextButton({ editCreds = true }) { Text("Ändern") }
                 } else {
                     Text(
@@ -164,12 +168,7 @@ fun ConnectBankScreen(data: AppData, repo: Repository, padding: PaddingValues) {
             onDismissRequest = { authError = null },
             confirmButton = { TextButton({ authError = null }) { Text("OK") } },
             title = { Text("Bank-Login konnte nicht gestartet werden") },
-            text = {
-                Text(
-                    msg + "\n\nHäufige Ursachen: Die Redirect-URL in ZDF stimmt nicht exakt mit der in Enable Banking eingetragenen überein, " +
-                        "oder die Application ist noch nicht über „Link accounts“ aktiviert.",
-                )
-            },
+            text = { Text(msg) },
         )
     }
 }
@@ -182,7 +181,8 @@ fun explainEbError(msg: String?): String {
             "Die Application ist noch nicht aktiv. Öffne enablebanking.com → Control Panel → Applications → deine App → „Link accounts“ " +
                 "und verknüpfe dort deine eigenen Konten (z. B. N26). Danach erneut versuchen.\n\n($m)"
         m.contains("redirect", true) ->
-            "Die Redirect-URL in ZDF stimmt nicht exakt mit der bei Enable Banking eingetragenen überein.\n\n($m)"
+            "Die Redirect-URL in ZDF stimmt nicht exakt mit der bei Enable Banking eingetragenen überein. " +
+                "Vergleiche beide Zeichen für Zeichen (https, kein Leerzeichen am Ende) – in ZDF steht sie unter Schritt 1.\n\n($m)"
         m.contains("HTTP 401") || m.contains("signature", true) || m.contains("jwt", true) ->
             "Application-ID und Private Key passen nicht zusammen. Prüfe unter „Ändern“, ob die .pem-Datei zur App-ID gehört.\n\n($m)"
         else -> m
