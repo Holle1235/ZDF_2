@@ -1,13 +1,19 @@
-name: Build APK
+name: Build & Release APK
 
+# Jeder Push auf main oder einen claude/*-Branch baut eine neue Version und
+# veröffentlicht sie als GitHub-Release. Die App findet sie dort und aktualisiert sich selbst.
 on:
   push:
-    branches: ["**"]
-    tags: ["v*"]
+    branches: ["main", "claude/**"]
+    paths-ignore: ["README.md", "docs/**"]
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -22,38 +28,37 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Signatur-Schlüssel (optional, aus Secrets)
+      - name: Signatur prüfen
         env:
-          KEYSTORE_BASE64: ${{ secrets.ZDF_KEYSTORE_BASE64 }}
+          ZDF_SIGNING_PASSWORD: ${{ secrets.ZDF_SIGNING_PASSWORD }}
         run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/zdf.jks"
-            echo "ZDF_KEYSTORE_FILE=$RUNNER_TEMP/zdf.jks" >> "$GITHUB_ENV"
-          else
-            echo "::warning::Kein ZDF_KEYSTORE_BASE64-Secret – APK wird mit Debug-Schlüssel signiert (Updates erfordern dann Neuinstallation)."
+          if [ -z "$ZDF_SIGNING_PASSWORD" ]; then
+            echo "::error::Secret ZDF_SIGNING_PASSWORD fehlt (Settings → Secrets and variables → Actions). Ohne festen Schlüssel könnten Updates nicht installiert werden."
+            exit 1
           fi
+
+      - name: Version festlegen
+        run: |
+          echo "ZDF_VERSION_CODE=$((100 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+          echo "ZDF_VERSION_NAME=1.1.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
 
       - name: Tests & Build
         env:
-          ZDF_KEYSTORE_PASSWORD: ${{ secrets.ZDF_KEYSTORE_PASSWORD }}
-          ZDF_KEY_ALIAS: ${{ secrets.ZDF_KEY_ALIAS }}
-          ZDF_KEY_PASSWORD: ${{ secrets.ZDF_KEY_PASSWORD }}
-          ZDF_VERSION_CODE: ${{ github.run_number }}
-          ZDF_VERSION_NAME: 1.0.${{ github.run_number }}
+          ZDF_SIGNING_PASSWORD: ${{ secrets.ZDF_SIGNING_PASSWORD }}
         run: ./gradlew testDebugUnitTest --tests 'de.zdf.app.CoreLogicTest' assembleRelease
 
-      - name: APK umbenennen
-        run: cp app/build/outputs/apk/release/app-release.apk ZDF-1.0.${{ github.run_number }}.apk
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ZDF-apk
-          path: ZDF-*.apk
+      - name: APK bereitstellen
+        run: cp app/build/outputs/apk/release/app-release.apk "ZDF-${ZDF_VERSION_NAME}.apk"
 
       - name: Release veröffentlichen
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('build-{0}', github.run_number) }}
-          name: ZDF 1.0.${{ github.run_number }}
-          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          tag_name: v${{ env.ZDF_VERSION_NAME }}
+          name: ZDF ${{ env.ZDF_VERSION_NAME }}
+          target_commitish: ${{ github.sha }}
+          make_latest: "true"
+          body: |
+            ${{ github.event.head_commit.message }}
+
+            Installation: APK unten herunterladen und öffnen. Bereits installierte Apps aktualisieren sich automatisch.
           files: ZDF-*.apk

@@ -25,11 +25,19 @@ Alle Daten bleiben AES-256-verschlüsselt auf deinem Handy (Schlüssel im Androi
 | **Keine Doppelzählung** | Abbuchungen „PayPal Europe“ vom Girokonto werden als Umbuchung erkannt, gezählt wird der echte Händler aus PayPal |
 | **Sicherheit** | Verschlüsselte Speicherung, optionale App-Sperre (Fingerabdruck/PIN), kein Cloud-Backup, JSON-Backup auf Wunsch |
 
-## Installation
+## Installation & automatische Updates
 
-1. Die neueste APK unter **[Releases](../../releases)** herunterladen (wird bei jedem Push automatisch von GitHub Actions gebaut).
-2. Auf dem Handy öffnen und „Installation aus unbekannten Quellen“ erlauben.
-3. Zum Ausprobieren: „Erst mal mit Demo-Daten ansehen“.
+1. Auf dem Handy die Seite **[Releases → Latest](../../releases/latest)** öffnen und die `ZDF-….apk` herunterladen.
+2. Öffnen und „Installation aus unbekannten Quellen“ für den Browser erlauben.
+3. Fertig – ab jetzt aktualisiert sich ZDF selbst:
+   - Beim Öffnen und alle 6 Stunden im Hintergrund (im WLAN) schaut ZDF hier im Repository nach einem neuen Release.
+   - Beim ersten Update fragt Android einmalig, ob ZDF Apps installieren darf → erlauben.
+   - Ab Android 12 laufen weitere Updates dann ohne Rückfrage im Hintergrund.
+   - Abschaltbar unter ⚙️ → *App-Updates*.
+
+Jeder Push auf `main` oder einen `claude/*`-Branch baut über GitHub Actions eine neue Version (`v1.1.<Build-Nr.>`) und veröffentlicht sie als Release.
+
+Zum Ausprobieren ohne Konto: „Erst mal mit Demo-Daten ansehen“.
 
 ## Bankkonto verbinden (einmalig ca. 10 Minuten)
 
@@ -75,19 +83,14 @@ in ZDF ⚙️ → *CSV importieren* → Konto „PayPal“ anlegen. Bei erneutem
 # → app/build/outputs/apk/release/app-release.apk
 ```
 
-### Stabile Signatur für Updates (empfohlen)
+### Signatur
 
-Ohne eigenen Schlüssel signiert die CI mit einem wechselnden Debug-Schlüssel – dann musst du die App vor einem Update
-deinstallieren (Daten vorher per Backup sichern). Einmalig einrichten:
+Updates lassen sich nur installieren, wenn jede Version mit demselben Schlüssel signiert ist.
+Der Schlüssel liegt **verschlüsselt** (PKCS#12, AES-256) unter `signing/zdf-release.p12`. Das Passwort steht nur im
+GitHub-Secret **`ZDF_SIGNING_PASSWORD`** (*Settings → Secrets and variables → Actions*). Ohne das Secret bricht der Build ab,
+damit nie eine falsch signierte Version veröffentlicht wird. Lokal: `ZDF_SIGNING_PASSWORD=… ./gradlew assembleRelease`.
 
-```bash
-keytool -genkeypair -v -keystore zdf.jks -alias zdf -keyalg RSA -keysize 4096 -validity 10000
-base64 -w0 zdf.jks   # Ausgabe kopieren
-```
-
-Dann im Repository unter *Settings → Secrets and variables → Actions* anlegen:
-`ZDF_KEYSTORE_BASE64`, `ZDF_KEYSTORE_PASSWORD`, `ZDF_KEY_ALIAS` (= `zdf`), `ZDF_KEY_PASSWORD`.
-**Den Keystore niemals committen.**
+**Passwort gut aufheben** – geht es verloren, muss ein neuer Schlüssel erzeugt und die App einmal neu installiert werden.
 
 ## Aufbau
 
@@ -97,12 +100,14 @@ app/src/main/java/de/zdf/app/
 ├── net/          Enable Banking (JWT/RS256) und PayPal REST-Client
 ├── importer/     CSV-Import mit automatischer Spaltenerkennung
 ├── security/     AES-GCM über Android Keystore
+├── update/       Selbst-Update aus GitHub-Releases (PackageInstaller + WorkManager)
 └── ui/           Jetpack Compose (Übersicht, Umsätze, Verträge, Analyse, Konten)
+signing/             verschlüsselter Signaturschlüssel (Passwort nur als GitHub-Secret)
 docs/callback.html   Weiterleitung vom Bank-Login zurück in die App (GitHub Pages)
 ```
 
 ## Datenschutz
 
 - Keine Analyse-/Tracking-Bibliotheken, keine Werbung.
-- Netzwerkzugriffe ausschließlich zu `api.enablebanking.com` und `api-m.paypal.com` – und nur, wenn du die jeweilige Verbindung einrichtest.
+- Netzwerkzugriffe ausschließlich zu `api.enablebanking.com` und `api-m.paypal.com` (nur wenn eingerichtet) sowie zu `api.github.com`/`github.com` für die Update-Prüfung dieses Repositorys.
 - Android-Cloud-Backup ist deaktiviert; Backups machst du bewusst selbst (⚙️ → Backup exportieren).

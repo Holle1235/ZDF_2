@@ -109,3 +109,11 @@ class CoreLogicTest {
         assertEquals(listOf("groceries" to 2000L), Analytics.spendingByCategory(tx, m))
     }
 }
+
+class UpdateVersionTest {
+    @Test fun tagToVersionCode() {
+        assertEquals(101, de.zdf.app.update.Updater.versionCodeFromTag("v1.1.1"))
+        assertEquals(142, de.zdf.app.update.Updater.versionCodeFromTag("v1.1.42"))
+        assertEquals(null, de.zdf.app.update.Updater.versionCodeFromTag("latest"))
+    }
+}

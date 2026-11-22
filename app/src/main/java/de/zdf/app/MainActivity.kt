@@ -13,6 +13,10 @@ import androidx.fragment.app.FragmentActivity
 import de.zdf.app.data.Source
 import de.zdf.app.ui.AppRoot
 import de.zdf.app.ui.theme.ZdfTheme
+import de.zdf.app.update.UpdatePrefs
+import de.zdf.app.update.Updater
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
 
@@ -32,6 +36,16 @@ class MainActivity : FragmentActivity() {
         val stale = d.accounts.filter { it.source == Source.ENABLE_BANKING || it.source == Source.PAYPAL }
             .any { (it.lastSync ?: 0) < System.currentTimeMillis() - 6 * 3600_000 }
         if (stale) repo.syncAll()
+
+        // Nach App-Updates suchen (höchstens alle 30 Minuten)
+        if (System.currentTimeMillis() - Updater.lastCheck(this) > 30 * 60_000) {
+            lifecycleScope.launch {
+                val rel = Updater.check(this@MainActivity)
+                if (rel != null && UpdatePrefs.auto(this@MainActivity) && Updater.canInstall(this@MainActivity)) {
+                    Updater.downloadAndInstall(this@MainActivity, rel)
+                }
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {

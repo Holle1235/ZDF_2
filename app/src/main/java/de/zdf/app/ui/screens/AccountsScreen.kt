@@ -56,6 +56,8 @@ import de.zdf.app.ui.components.sourceLabel
 import de.zdf.app.ui.money
 import de.zdf.app.ui.parseUserAmount
 import java.text.DateFormat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import java.util.Date
 
 @Composable
@@ -140,6 +142,7 @@ fun AccountsScreen(data: AppData, repo: Repository, padding: PaddingValues, onCo
                 }
             }
         }
+        item { UpdateSection() }
         item {
             SectionCard(title = "Sicherheit & Daten") {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -288,5 +291,33 @@ private fun EditAccountDialog(a: Account, repo: Repository, onDismiss: () -> Uni
             confirmButton = { TextButton({ repo.deleteAccount(a.id); confirmDelete = false; onDismiss() }) { Text("Entfernen", color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton({ confirmDelete = false }) { Text("Abbrechen") } },
         )
+    }
+}
+
+@Composable
+private fun UpdateSection() {
+    val ctx = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val state by de.zdf.app.update.Updater.state.collectAsStateWithLifecycle()
+    var auto by remember { mutableStateOf(de.zdf.app.update.UpdatePrefs.auto(ctx)) }
+    SectionCard(title = "App-Updates") {
+        Text("Installierte Version: ${de.zdf.app.update.Updater.currentVersionName}", style = MaterialTheme.typography.bodyMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Automatisch aktualisieren")
+                Text("Neue Versionen aus dem GitHub-Repository laden und installieren", style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(auto, { auto = it; de.zdf.app.update.UpdatePrefs.setAuto(ctx, it) })
+        }
+        Text(
+            when (state) {
+                de.zdf.app.update.UpdateState.Checking -> "Suche …"
+                de.zdf.app.update.UpdateState.UpToDate -> "✓ Du hast die neueste Version."
+                is de.zdf.app.update.UpdateState.Available -> "Update verfügbar."
+                else -> ""
+            },
+            style = MaterialTheme.typography.bodySmall,
+        )
+        TextButton({ scope.launch { de.zdf.app.update.Updater.check(ctx) } }) { Text("Jetzt nach Updates suchen") }
     }
 }

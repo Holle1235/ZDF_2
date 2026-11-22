@@ -5,8 +5,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
-// Optionale Release-Signatur über Umgebungsvariablen (z. B. GitHub-Secrets).
-val signingStore = System.getenv("ZDF_KEYSTORE_FILE")
+// Release-Signatur: verschlüsselter Schlüssel liegt im Repo (signing/zdf-release.p12),
+// das Passwort kommt aus der Umgebung (GitHub-Secret ZDF_SIGNING_PASSWORD).
+// Gleiche Signatur = Updates lassen sich über die alte Version installieren.
+val signingPassword: String? = System.getenv("ZDF_SIGNING_PASSWORD")?.takeIf { it.isNotBlank() }
+val signingFile = rootProject.file("signing/zdf-release.p12")
 
 android {
     namespace = "de.zdf.app"
@@ -16,17 +19,19 @@ android {
         applicationId = "de.zdf.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = (System.getenv("ZDF_VERSION_CODE") ?: "1").toInt()
-        versionName = System.getenv("ZDF_VERSION_NAME") ?: "1.0.0"
+        versionCode = (System.getenv("ZDF_VERSION_CODE") ?: "100").toInt()
+        versionName = System.getenv("ZDF_VERSION_NAME") ?: "1.1.0"
+        buildConfigField("String", "UPDATE_REPO", "\"holle1235/zdf_2\"")
     }
 
     signingConfigs {
-        if (signingStore != null) {
+        if (signingPassword != null && signingFile.exists()) {
             create("release") {
-                storeFile = file(signingStore)
-                storePassword = System.getenv("ZDF_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("ZDF_KEY_ALIAS")
-                keyPassword = System.getenv("ZDF_KEY_PASSWORD")
+                storeFile = signingFile
+                storeType = "PKCS12"
+                storePassword = signingPassword
+                keyAlias = "zdf"
+                keyPassword = signingPassword
             }
         }
     }
@@ -36,8 +41,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = if (signingStore != null) signingConfigs.getByName("release")
-            else signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 
@@ -50,6 +54,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     testOptions {
         unitTests.isIncludeAndroidResources = true
@@ -73,6 +78,7 @@ dependencies {
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.fragment:fragment-ktx:1.8.5")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
 

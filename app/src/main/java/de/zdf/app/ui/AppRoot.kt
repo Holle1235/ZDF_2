@@ -137,6 +137,7 @@ fun AppRoot(repo: Repository, unlocked: Boolean, onUnlock: () -> Unit) {
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
+        UpdateDialogs()
         NavHost(nav, startDestination = "dashboard") {
             composable("dashboard") {
                 DashboardScreen(
